@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventory · Stock Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>Inventory</h1>
+  <label>
+    <input id="filter" type="search" placeholder="Filter by name or supplier">
+  </label>
+  <div id="list"></div>
+  <p id="empty" class="muted hidden">No items yet. <a href="new.html">Create the first one.</a></p>
+  <p id="error" class="msg error"></p>
+</main>
+
+<dialog id="dlg">
+  <img id="dlgImg" alt="QR code">
+  <p id="dlgName"></p>
+  <button id="dlgClose" class="secondary">Close</button>
+</dialog>
+
+<script type="module">
+  import { api, renderNav, esc, fmtDate, fmtNum, printQr } from './app.js';
+  renderNav('inventory.html');
+
+  const list = document.getElementById('list');
+  const empty = document.getElementById('empty');
+  const dlg = document.getElementById('dlg');
+  let items = [];
+
+  function render() {
+    const q = document.getElementById('filter').value.trim().toLowerCase();
+    const shown = items.filter((i) => !q || `${i.name} ${i.supplier}`.toLowerCase().includes(q));
+    empty.classList.toggle('hidden', items.length > 0);
+    list.innerHTML = shown.map((i) => `
+      <article class="card item" data-id="${esc(i.id)}">
+        <img class="qr" src="${i.qrDataUrl}" alt="QR code for ${esc(i.name)}" title="Tap to enlarge">
+        <div class="info">
+          <h2>${esc(i.name)}</h2>
+          <div class="muted">${esc(i.supplier)} · received ${esc(i.receivedDate)}</div>
+          <div class="qty ${i.remainingQuantity <= i.initialQuantity * 0.1 ? 'low' : ''}">
+            ${fmtNum(i.remainingQuantity)} / ${fmtNum(i.initialQuantity)} ${esc(i.unit)} remaining
+          </div>
+          <details>
+            <summary>Usage history (${i.usages.length})</summary>
+            ${i.usages.length ? `
+              <table>
+                <tr><th>Date</th><th>Taken</th><th>Used for</th></tr>
+                ${[...i.usages].reverse().map((u) => `
+                  <tr><td>${fmtDate(u.date)}</td><td>${fmtNum(u.quantity)} ${esc(i.unit)}</td><td>${esc(u.purpose)}</td></tr>`).join('')}
+              </table>` : '<p class="muted">Not used yet.</p>'}
+          </details>
+          <div class="actions">
+            <a class="btn secondary" href="update.html?id=${encodeURIComponent(i.id)}">Record usage</a>
+            <button class="secondary" data-print>Print QR</button>
+          </div>
+        </div>
+      </article>`).join('');
+  }
+
+  list.addEventListener('click', (e) => {
+    const card = e.target.closest('.item');
+    if (!card) return;
+    const item = items.find((i) => i.id === card.dataset.id);
+    if (e.target.matches('img.qr')) {
+      document.getElementById('dlgImg').src = item.qrDataUrl;
+      document.getElementById('dlgName').textContent = item.name;
+      dlg.showModal();
+    } else if (e.target.matches('[data-print]')) {
+      printQr(item);
+    }
+  });
+  document.getElementById('dlgClose').onclick = () => dlg.close();
+  document.getElementById('filter').addEventListener('input', render);
+
+  async function load() {
+    try {
+      // keep open <details> from collapsing on refresh by only re-rendering when data changed
+      const next = await api('/api/items');
+      if (JSON.stringify(next) !== JSON.stringify(items)) {
+        const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.closest('.item').dataset.id));
+        items = next;
+        render();
+        list.querySelectorAll('.item').forEach((el) => {
+          if (open.has(el.dataset.id)) el.querySelector('details').open = true;
+        });
+      }
+      document.getElementById('error').textContent = '';
+    } catch (err) {
+      document.getElementById('error').textContent = err.message;
+    }
+  }
+  load();
+  setInterval(load, 5000);
+</script>
+</body>
+</html>

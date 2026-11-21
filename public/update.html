@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Update stock · Stock Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>Update stock</h1>
+
+  <section id="scanStep">
+    <div class="card scanner">
+      <video id="video" playsinline muted></video>
+      <p id="scanStatus" class="muted">Starting camera…</p>
+      <div class="actions">
+        <label class="btn secondary" style="margin:0">Scan from photo
+          <input id="photo" type="file" accept="image/*" capture="environment" class="hidden">
+        </label>
+      </div>
+    </div>
+    <form id="manual" class="card">
+      <label>Or enter the item ID manually
+        <input id="manualId" autocomplete="off" placeholder="Item ID">
+      </label>
+      <button type="submit" class="secondary">Look up</button>
+    </form>
+    <p id="scanError" class="msg error"></p>
+  </section>
+
+  <section id="formStep" class="hidden">
+    <form id="useForm" class="card">
+      <h2 id="itemName" style="margin-top:0"></h2>
+      <div id="itemMeta" class="muted"></div>
+      <p class="qty" id="remaining"></p>
+      <div class="row">
+        <label>Quantity taken
+          <input name="quantity" type="number" min="0" step="any" inputmode="decimal" required>
+        </label>
+        <label>Unit
+          <input id="unit" readonly tabindex="-1">
+        </label>
+      </div>
+      <label>Used for
+        <input name="purpose" required autocomplete="off" placeholder="e.g. Batch 42 production">
+      </label>
+      <button type="submit">Submit</button>
+      <button type="button" id="cancel" class="secondary">Cancel</button>
+      <div id="formError" class="msg error"></div>
+    </form>
+  </section>
+
+  <section id="doneStep" class="card hidden">
+    <p id="doneMsg" class="msg ok"></p>
+    <button id="again">Scan another</button>
+  </section>
+</main>
+
+<script type="module">
+  import { api, renderNav, fmtNum } from './app.js';
+  renderNav('update.html');
+
+  const $ = (id) => document.getElementById(id);
+  const steps = { scan: $('scanStep'), form: $('formStep'), done: $('doneStep') };
+  const show = (name) => Object.entries(steps).forEach(([k, el]) => el.classList.toggle('hidden', k !== name));
+
+  let current = null;
+  let stream = null;
+  let detector = null;
+  let scanning = false;
+
+  async function getDetector() {
+    if (detector) return detector;
+    let Impl = globalThis.BarcodeDetector;
+    if (!Impl) ({ BarcodeDetector: Impl } = await import('https://cdn.jsdelivr.net/npm/barcode-detector@3.2.4/dist/es/ponyfill.js'));
+    detector = new Impl({ formats: ['qr_code'] });
+    return detector;
+  }
+
+  async function startScan() {
+    $('scanError').textContent = '';
+    show('scan');
+    if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+      $('scanStatus').textContent = 'Camera is unavailable here (HTTPS is required). Use "Scan from photo" or enter the ID.';
+      return;
+    }
+    try {
+      const det = await getDetector();
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      const video = $('video');
+      video.srcObject = stream;
+      await video.play();
+      $('scanStatus').textContent = 'Point the camera at the item\'s QR code.';
+      scanning = true;
+      const tick = async () => {
+        if (!scanning) return;
+        try {
+          const codes = await det.detect(video);
+          if (codes.length) {
+            const id = codes[0].rawValue;
+            stopScan();
+            return lookup(id);
+          }
+        } catch { /* ignore frame errors */ }
+        setTimeout(tick, 150);
+      };
+      tick();
+    } catch (err) {
+      $('scanStatus').textContent = `Camera unavailable (${err.name}). Use "Scan from photo" or enter the ID.`;
+    }
+  }
+
+  function stopScan() {
+    scanning = false;
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+
+  async function lookup(id) {
+    $('scanError').textContent = '';
+    try {
+      current = await api(`/api/items/${encodeURIComponent(id.trim())}`);
+    } catch (err) {
+      $('scanError').textContent = `${err.message} Scan again.`;
+      return startScan();
+    }
+    $('itemName').textContent = current.name;
+    $('itemMeta').textContent = `${current.supplier} · received ${current.receivedDate}`;
+    $('remaining').textContent = `${fmtNum(current.remainingQuantity)} ${current.unit} remaining`;
+    $('unit').value = current.unit;
+    $('useForm').reset();
+    $('unit').value = current.unit;
+    $('formError').textContent = '';
+    show('form');
+    $('useForm').quantity.focus();
+  }
+
+  $('manual').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!$('manualId').value.trim()) return;
+    stopScan();
+    lookup($('manualId').value);
+  });
+
+  $('photo').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const det = await getDetector();
+      const bmp = await createImageBitmap(file);
+      const codes = await det.detect(bmp);
+      if (!codes.length) throw new Error('No QR code found in that photo.');
+      stopScan();
+      lookup(codes[0].rawValue);
+    } catch (err) {
+      $('scanError').textContent = err.message;
+    }
+  });
+
+  $('useForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.submitter;
+    btn.disabled = true;
+    $('formError').textContent = '';
+    try {
+      const f = e.target;
+      const updated = await api(`/api/items/${encodeURIComponent(current.id)}/usages`, {
+        method: 'POST',
+        body: { quantity: f.quantity.value, purpose: f.purpose.value },
+      });
+      $('doneMsg').textContent = `Recorded. ${updated.name}: ${fmtNum(updated.remainingQuantity)} ${updated.unit} remaining.`;
+      show('done');
+    } catch (err) {
+      $('formError').textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('cancel').onclick = startScan;
+  $('again').onclick = startScan;
+
+  const preset = new URLSearchParams(location.search).get('id');
+  if (preset) lookup(preset); else startScan();
+</script>
+</body>
+</html>

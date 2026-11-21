@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New item · Stock Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>New inventory item</h1>
+
+  <form id="form" class="card">
+    <label>Item name
+      <input name="name" required autocomplete="off">
+    </label>
+    <div class="row">
+      <label>Date received
+        <input name="receivedDate" type="date" required>
+      </label>
+      <label>Supplier
+        <input name="supplier" required autocomplete="off">
+      </label>
+    </div>
+    <div class="row">
+      <label>Quantity
+        <input name="quantity" type="number" min="0" step="any" inputmode="decimal" required>
+      </label>
+      <label>Unit
+        <select name="unit">
+          <option value="bags">bags</option>
+          <option value="kg">kg</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit">Create item</button>
+    <div id="error" class="msg error"></div>
+  </form>
+
+  <section id="result" class="card qr-result hidden">
+    <p class="msg ok">Item created. Print this QR code and attach it to the item.</p>
+    <img id="qr" alt="QR code">
+    <h2 id="itemName"></h2>
+    <div class="actions" style="justify-content:center">
+      <button id="print">Print QR</button>
+      <button id="another" class="secondary">Create another</button>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+  import { api, renderNav, printQr } from './app.js';
+  renderNav('new.html');
+
+  const form = document.getElementById('form');
+  const result = document.getElementById('result');
+  const error = document.getElementById('error');
+  const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+  form.receivedDate.value = today();
+  let created;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    error.textContent = '';
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    try {
+      created = await api('/api/items', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+      document.getElementById('qr').src = created.qrDataUrl;
+      document.getElementById('itemName').textContent = created.name;
+      form.classList.add('hidden');
+      result.classList.remove('hidden');
+    } catch (err) {
+      error.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('print').onclick = () => printQr(created);
+  document.getElementById('another').onclick = () => {
+    form.reset();
+    form.receivedDate.value = today();
+    result.classList.add('hidden');
+    form.classList.remove('hidden');
+    form.name.focus();
+  };
+</script>
+</body>
+</html>
