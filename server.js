@@ -39,15 +39,31 @@ async function withQr(item) {
 
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
 
+// True for a YYYY-MM-DD string that is a real calendar date
+function isCalendarDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 app.post('/api/items', async (req, res) => {
   const name = text(req.body.name);
   const supplier = text(req.body.supplier);
   const receivedDate = text(req.body.receivedDate);
   const unit = text(req.body.unit);
   const quantity = Number(req.body.quantity);
+  const rawExpiration = req.body.expirationDate;
+  const expirationDate = typeof rawExpiration === 'string' ? rawExpiration.trim() || null : rawExpiration ?? null;
 
   if (!name || !supplier) return res.status(400).json({ error: 'Name and supplier are required.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) return res.status(400).json({ error: 'A valid received date is required.' });
+  if (expirationDate !== null) {
+    if (typeof expirationDate !== 'string' || !isCalendarDate(expirationDate)) {
+      return res.status(400).json({ error: 'Expiration date must be a valid date (YYYY-MM-DD).' });
+    }
+    if (expirationDate < receivedDate) return res.status(400).json({ error: 'Expiration date can\'t be before the received date.' });
+  }
   if (!UNITS.includes(unit)) return res.status(400).json({ error: 'Unit must be bags or kg.' });
   if (!Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0.' });
 
@@ -55,6 +71,7 @@ app.post('/api/items', async (req, res) => {
     id: randomUUID(),
     name,
     receivedDate,
+    expirationDate,
     supplier,
     unit,
     initialQuantity: quantity,
@@ -160,7 +177,11 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = app;
