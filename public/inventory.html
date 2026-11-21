@@ -41,7 +41,7 @@
         <img class="qr" src="${i.qrDataUrl}" alt="QR code for ${esc(i.name)}" title="Tap to enlarge">
         <div class="info">
           <h2>${esc(i.name)}</h2>
-          <div class="muted">${esc(i.supplier)} · received ${esc(i.receivedDate)}</div>
+          <div class="muted">${esc(i.supplier)} · received ${esc(i.receivedDate)}${i.expirationDate ? ` · expires ${esc(i.expirationDate)}` : ''}</div>
           <div class="qty ${i.remainingQuantity <= i.initialQuantity * 0.1 ? 'low' : ''}">
             ${fmtNum(i.remainingQuantity)} / ${fmtNum(i.initialQuantity)} ${esc(i.unit)} remaining
           </div>
