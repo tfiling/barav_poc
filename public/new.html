@@ -10,9 +10,11 @@
 <main>
   <h1>New inventory item</h1>
 
-  <form id="form" class="card">
-    <label>Item name
-      <input name="name" required autocomplete="off">
+  <p id="noArchetypes" class="muted hidden">No product archetypes yet. <a href="archetypes.html">Create one first.</a></p>
+
+  <form id="form" class="card hidden">
+    <label>Product archetype
+      <select name="archetypeId" required></select>
     </label>
     <div class="row">
       <label>Date received
@@ -22,20 +24,9 @@
         <input name="expirationDate" type="date">
       </label>
     </div>
-    <label>Supplier
-      <input name="supplier" required autocomplete="off">
+    <label>Quantity
+      <input name="quantity" type="number" min="0" step="any" inputmode="decimal" required>
     </label>
-    <div class="row">
-      <label>Quantity
-        <input name="quantity" type="number" min="0" step="any" inputmode="decimal" required>
-      </label>
-      <label>Unit
-        <select name="unit">
-          <option value="bags">bags</option>
-          <option value="kg">kg</option>
-        </select>
-      </label>
-    </div>
     <button type="submit">Create item</button>
     <div id="error" class="msg error"></div>
   </form>
@@ -52,7 +43,7 @@
 </main>
 
 <script type="module">
-  import { api, renderNav, printQr } from './app.js';
+  import { api, renderNav, esc, printQr } from './app.js';
   renderNav('new.html');
 
   const form = document.getElementById('form');
@@ -61,6 +52,21 @@
   const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
   form.receivedDate.value = today();
   let created;
+
+  async function loadArchetypes() {
+    try {
+      const archetypes = await api('/api/archetypes');
+      form.archetypeId.innerHTML = archetypes
+        .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} (${esc(a.supplier)}, ${esc(a.unit)})</option>`)
+        .join('');
+      document.getElementById('noArchetypes').classList.toggle('hidden', archetypes.length > 0);
+      form.classList.toggle('hidden', archetypes.length === 0);
+    } catch (err) {
+      error.textContent = err.message;
+      form.classList.remove('hidden');
+    }
+  }
+  loadArchetypes();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -86,7 +92,7 @@
     form.receivedDate.value = today();
     result.classList.add('hidden');
     form.classList.remove('hidden');
-    form.name.focus();
+    form.archetypeId.focus();
   };
 </script>
 </body>
