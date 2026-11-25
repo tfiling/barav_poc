@@ -15,6 +15,7 @@ export function renderNav(active) {
     ['new.html', 'New item'],
     ['inventory.html', 'Inventory'],
     ['update.html', 'Update stock'],
+    ['archetypes.html', 'Archetypes'],
   ];
   const nav = document.createElement('nav');
   nav.innerHTML = links

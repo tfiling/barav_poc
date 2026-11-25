@@ -93,7 +93,8 @@ button:disabled { opacity: .6; cursor: default; }
 .item { display: flex; gap: 16px; align-items: flex-start; }
 .item img.qr { width: 120px; height: 120px; border-radius: 6px; background: #fff; cursor: pointer; flex: none; }
 .item .info { flex: 1; min-width: 0; }
-.item h2 { margin: 0 0 4px; font-size: 1.1rem; }
+.item h2, .archetype h2 { margin: 0 0 4px; font-size: 1.1rem; }
+.archetype p { margin: 6px 0 0; }
 .qty { font-weight: 600; }
 .qty.low { color: var(--danger); }
 .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
