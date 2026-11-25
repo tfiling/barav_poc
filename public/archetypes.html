@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Archetypes · Stock Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>Product archetypes</h1>
+
+  <form id="form" class="card" novalidate>
+    <label>Name
+      <input name="name" required autocomplete="off">
+    </label>
+    <label>Description (optional)
+      <input name="description" autocomplete="off">
+    </label>
+    <div class="row">
+      <label>Supplier
+        <input name="supplier" required autocomplete="off">
+      </label>
+      <label>Unit
+        <select name="unit">
+          <option value="bags">bags</option>
+          <option value="kg">kg</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit">Create archetype</button>
+    <div id="error" class="msg error"></div>
+  </form>
+
+  <div id="list"></div>
+  <p id="empty" class="muted hidden">No archetypes yet.</p>
+  <p id="loadError" class="msg error"></p>
+</main>
+
+<script type="module">
+  import { api, renderNav, esc } from './app.js';
+  renderNav('archetypes.html');
+
+  const form = document.getElementById('form');
+  const error = document.getElementById('error');
+  const list = document.getElementById('list');
+  const empty = document.getElementById('empty');
+
+  async function load() {
+    try {
+      const archetypes = await api('/api/archetypes');
+      empty.classList.toggle('hidden', archetypes.length > 0);
+      list.innerHTML = archetypes.map((a) => `
+        <article class="card archetype">
+          <h2>${esc(a.name)}</h2>
+          <div class="muted">${esc(a.supplier)} · ${esc(a.unit)}</div>
+          ${a.description ? `<p>${esc(a.description)}</p>` : ''}
+        </article>`).join('');
+      document.getElementById('loadError').textContent = '';
+    } catch (err) {
+      document.getElementById('loadError').textContent = err.message;
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    error.textContent = '';
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    try {
+      await api('/api/archetypes', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+      form.reset();
+      await load();
+    } catch (err) {
+      error.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  load();
+</script>
+</body>
+</html>
