@@ -13,6 +13,7 @@ const UNITS = ['bags', 'kg'];
 
 // In-memory store (wiped on restart)
 const items = new Map();
+const archetypes = new Map();
 
 const ts = () => new Date().toISOString().slice(11, 23);
 const log = (...a) => console.log(ts(), ...a);
@@ -32,10 +33,14 @@ app.get('/ping', (req, res) => res.type('text').send(`pong from ${ip(req.socket.
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-async function withQr(item) {
+// Merge the item's archetype fields into the response, then add the QR code
+async function toResponse(item) {
+  const { name, description, supplier, unit } = archetypes.get(item.archetypeId);
   const qrDataUrl = await QRCode.toDataURL(item.id, { margin: 2, width: 320 });
-  return { ...item, qrDataUrl };
+  return { ...item, name, description, supplier, unit, qrDataUrl };
 }
+
+const newestFirst = (a, b) => b.createdAt.localeCompare(a.createdAt);
 
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
 
@@ -47,16 +52,38 @@ function isCalendarDate(s) {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
-app.post('/api/items', async (req, res) => {
+app.post('/api/archetypes', (req, res) => {
   const name = text(req.body.name);
+  const description = text(req.body.description);
   const supplier = text(req.body.supplier);
-  const receivedDate = text(req.body.receivedDate);
   const unit = text(req.body.unit);
+
+  if (!name || !supplier) return res.status(400).json({ error: 'Name and supplier are required.' });
+  if (!UNITS.includes(unit)) return res.status(400).json({ error: 'Unit must be bags or kg.' });
+
+  const archetype = { id: randomUUID(), name, description, supplier, unit, createdAt: new Date().toISOString() };
+  archetypes.set(archetype.id, archetype);
+  res.status(201).json(archetype);
+});
+
+app.get('/api/archetypes', (req, res) => {
+  res.json([...archetypes.values()].sort(newestFirst));
+});
+
+app.get('/api/archetypes/:id', (req, res) => {
+  const archetype = archetypes.get(req.params.id);
+  if (!archetype) return res.status(404).json({ error: 'Archetype not found.' });
+  res.json(archetype);
+});
+
+app.post('/api/items', async (req, res) => {
+  const archetypeId = text(req.body.archetypeId);
+  const receivedDate = text(req.body.receivedDate);
   const quantity = Number(req.body.quantity);
   const rawExpiration = req.body.expirationDate;
   const expirationDate = typeof rawExpiration === 'string' ? rawExpiration.trim() || null : rawExpiration ?? null;
 
-  if (!name || !supplier) return res.status(400).json({ error: 'Name and supplier are required.' });
+  if (!archetypes.has(archetypeId)) return res.status(400).json({ error: 'Please choose a valid product archetype.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) return res.status(400).json({ error: 'A valid received date is required.' });
   if (expirationDate !== null) {
     if (typeof expirationDate !== 'string' || !isCalendarDate(expirationDate)) {
@@ -64,34 +91,31 @@ app.post('/api/items', async (req, res) => {
     }
     if (expirationDate < receivedDate) return res.status(400).json({ error: 'Expiration date can\'t be before the received date.' });
   }
-  if (!UNITS.includes(unit)) return res.status(400).json({ error: 'Unit must be bags or kg.' });
   if (!Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0.' });
 
   const item = {
     id: randomUUID(),
-    name,
+    archetypeId,
     receivedDate,
     expirationDate,
-    supplier,
-    unit,
     initialQuantity: quantity,
     remainingQuantity: quantity,
     createdAt: new Date().toISOString(),
     usages: [],
   };
   items.set(item.id, item);
-  res.status(201).json(await withQr(item));
+  res.status(201).json(await toResponse(item));
 });
 
 app.get('/api/items', async (req, res) => {
-  const list = [...items.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  res.json(await Promise.all(list.map(withQr)));
+  const list = [...items.values()].sort(newestFirst);
+  res.json(await Promise.all(list.map(toResponse)));
 });
 
 app.get('/api/items/:id', async (req, res) => {
   const item = items.get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found.' });
-  res.json(await withQr(item));
+  res.json(await toResponse(item));
 });
 
 app.post('/api/items/:id/usages', async (req, res) => {
@@ -103,12 +127,12 @@ app.post('/api/items/:id/usages', async (req, res) => {
   if (!Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0.' });
   if (!purpose) return res.status(400).json({ error: 'Please say what it was used for.' });
   if (quantity > item.remainingQuantity) {
-    return res.status(400).json({ error: `Only ${item.remainingQuantity} ${item.unit} remaining.` });
+    return res.status(400).json({ error: `Only ${item.remainingQuantity} ${archetypes.get(item.archetypeId).unit} remaining.` });
   }
 
   item.remainingQuantity = Math.round((item.remainingQuantity - quantity) * 1000) / 1000;
   item.usages.push({ id: randomUUID(), quantity, purpose, date: new Date().toISOString() });
-  res.json(await withQr(item));
+  res.json(await toResponse(item));
 });
 
 function lanIps() {
